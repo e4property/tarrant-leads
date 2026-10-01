@@ -147,12 +147,28 @@ def clean_address(raw):
     return street, city, zip_code
 
 
-def make_doc_number(filed_date_raw, grantor, address_raw):
+def make_doc_number(filed_date_raw, grantor, address_raw, blank_seq=None):
     """Stable synthetic id -- see module docstring for why this isn't a
-    simple row-index (same-day row order isn't stable across runs)."""
+    simple row-index (same-day row order isn't stable across runs).
+
+    2026-10-01: confirmed live on the very first run -- a long run of
+    "N/A" grantor+address placeholder rows for the same filed_date (the
+    county's own listing has many of these, no way around it from the
+    listing alone) all hash identically, which silently collapsed 26
+    distinct real filings into duplicates on page 1 alone ("26 known" on
+    a brand-new scrape with an empty known_docs set, which should be
+    impossible). blank_seq (a per-page counter, passed only when BOTH
+    fields are blank) keeps those apart within a single run. This can't
+    perfectly dedupe identical blanks ACROSS separate runs -- accepted
+    as a real, disclosed limitation (see CLAUDE.md) since these rows
+    carry no owner/address and aren't actionable leads either way.
+    """
     d = parse_full_date(filed_date_raw)
     date_part = d.strftime("%Y%m%d") if d else "00000000"
-    h = hashlib.md5(f"{grantor}|{address_raw}".encode("utf-8")).hexdigest()[:8]
+    key = f"{grantor}|{address_raw}"
+    if not grantor and not address_raw and blank_seq is not None:
+        key += f"|blank{blank_seq}"
+    h = hashlib.md5(key.encode("utf-8")).hexdigest()[:8]
     return f"TAR-{date_part}-{h}"
 
 
@@ -217,6 +233,7 @@ def scrape_fc(driver, known_docs):
         prev_page_was_full = len(rows) >= 48
         page_new = 0
         page_known = 0
+        blank_counter = 0
 
         for row in rows:
             try:
@@ -240,12 +257,18 @@ def scrape_fc(driver, known_docs):
 
             if grantor.upper() == "N/A":
                 grantor = ""
+            if address_raw.upper() == "N/A":
+                address_raw = ""
 
             filed_dt = parse_full_date(filed_date_raw)
             if filed_dt and filed_dt < CUTOFF_DATE:
                 continue
 
-            doc_number = make_doc_number(filed_date_raw, grantor, address_raw)
+            if not grantor and not address_raw:
+                blank_counter += 1
+                doc_number = make_doc_number(filed_date_raw, grantor, address_raw, blank_counter)
+            else:
+                doc_number = make_doc_number(filed_date_raw, grantor, address_raw)
             if doc_number in known_docs:
                 page_known += 1
                 continue
