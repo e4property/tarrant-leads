@@ -198,18 +198,34 @@ def scrape_fc(driver, known_docs):
             log.warning(f"  Hit MAX_PAGES={MAX_PAGES} — stopping, rest deferred to next run")
             break
 
-        url = f"{url_base}&offset={offset}"
         log.info(f"  offset={offset}")
 
-        try:
-            driver.get("about:blank")
-        except Exception:
-            pass
-        try:
-            driver.get(url)
-        except Exception as e:
-            log.warning(f"  Page load failed offset={offset}: {e}")
-            break
+        if page == 0:
+            # Page 1 only: direct hard navigation, proven 100% reliable.
+            url = f"{url_base}&offset={offset}"
+            try:
+                driver.get("about:blank")
+            except Exception:
+                pass
+            try:
+                driver.get(url)
+            except Exception as e:
+                log.warning(f"  Page load failed offset={offset}: {e}")
+                break
+        else:
+            # 2026-10-01: the real fix, found and verified live on bexar-leads
+            # the same night -- a direct driver.get() to a non-zero-offset
+            # URL gets served a genuine (not transient) "No Results Found"
+            # decoy page. Clicking the actual pagination button on the
+            # already-loaded page works every time instead -- verified live
+            # on THIS tenant specifically before relying on it.
+            try:
+                next_btn = driver.find_element(By.CSS_SELECTOR, "button[aria-label='next page']")
+                driver.execute_script("arguments[0].scrollIntoView({block:'center'});", next_btn)
+                next_btn.click()
+            except Exception as e:
+                log.info(f"  Next-page button missing/unclickable: {e} — treating as end of results")
+                break
 
         deadline = time.time() + PAGE_TIMEOUT
         rows = []
