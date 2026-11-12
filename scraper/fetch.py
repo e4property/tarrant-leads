@@ -363,6 +363,14 @@ def scrape_fc(driver, known_docs):
 
 def build_dashboard(records):
     os.makedirs("dashboard", exist_ok=True)
+    # 2026-11-12 privacy: phones, notes and lookup dates live ONLY in the private repo
+    # (e4property/e4-leads-private). Never publish them; public records get dash_has_phone only.
+    for _r in records:
+        if _r.get("dash_phone"):
+            _r["dash_has_phone"] = True
+        for _k in ("dash_phone", "dash_notes", "dash_searched_at"):
+            _r.pop(_k, None)
+
     clean = [{k: v for k, v in r.items() if not k.startswith("_")} for r in records]
     with open(RECORDS_PATH, "w", encoding="utf-8") as f:
         json.dump(clean, f, separators=(",", ":"), ensure_ascii=True)
